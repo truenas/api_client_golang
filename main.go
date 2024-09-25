@@ -7,9 +7,7 @@ import (
 	"log"
 	"net/url"
 	"os"
-	"os/signal"
 	"sync"
-	"syscall"
 	"time"
 
 	"github.com/gorilla/websocket"
@@ -123,6 +121,7 @@ func (c *Client) listen() {
 			continue
 		}
 
+		// float64 "looks" wrong, but Javascript kinda only knows floats.
 		if id, ok := response["id"].(float64); ok {
 			callID := int(id)
 			c.mu.Lock()
@@ -226,8 +225,6 @@ func main() {
 	log.Printf("User created: %s", res)
 
 	// Graceful shutdown
-	signal.Notify(client.notifyChan, syscall.SIGINT, syscall.SIGTERM)
-	<-client.notifyChan
 	client.Close()
 	log.Println("Client closed.")
 }
