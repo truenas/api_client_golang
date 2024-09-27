@@ -22,7 +22,84 @@ type Client struct {
 	callID     int
 	pending    map[int]chan json.RawMessage
 	notifyChan chan os.Signal
-	closeChan  chan bool
+	closeChan  chan struct{}
+	jobs       *Jobs // Jobs manager to track long-running jobs
+}
+
+// Job represents a long-running job in TrueNAS.
+type Job struct {
+	ID         int64
+	Method     string
+	State      string
+	Result     interface{}
+	Progress   float64
+	Finished   bool
+	ProgressCh chan float64
+	DoneCh     chan error
+}
+
+// Jobs manages long-running tasks.
+type Jobs struct {
+	client *Client
+	jobs   map[int64]*Job
+	mu     sync.Mutex
+}
+
+// NewJobs creates a new Jobs manager.
+func NewJobs(client *Client) *Jobs {
+	return &Jobs{
+		client: client,
+		jobs:   make(map[int64]*Job),
+	}
+}
+
+// AddJob adds a new job to the Jobs manager.
+func (j *Jobs) AddJob(jobID int64, method string) *Job {
+	j.mu.Lock()
+	defer j.mu.Unlock()
+	job := &Job{
+		ID:         jobID,
+		Method:     method,
+		State:      "PENDING",
+		ProgressCh: make(chan float64),
+		DoneCh:     make(chan error),
+	}
+	j.jobs[jobID] = job
+	return job
+}
+
+// GetJob retrieves a job by its ID.
+func (j *Jobs) GetJob(jobID int64) (*Job, bool) {
+	j.mu.Lock()
+	defer j.mu.Unlock()
+	job, exists := j.jobs[jobID]
+	return job, exists
+}
+
+// RemoveJob removes a completed job from the Jobs manager.
+func (j *Jobs) RemoveJob(jobID int64) {
+	j.mu.Lock()
+	defer j.mu.Unlock()
+	delete(j.jobs, jobID)
+}
+
+// UpdateJobState updates the state of a long-running job.
+func (j *Jobs) UpdateJobState(jobID int64, state string, progress float64, result interface{}, err error) {
+	j.mu.Lock()
+	defer j.mu.Unlock()
+	job, exists := j.jobs[jobID]
+	if !exists {
+		return
+	}
+	job.State = state
+	job.Progress = progress
+	if state == "SUCCESS" || state == "FAILED" {
+		job.Finished = true
+		job.Result = result
+		job.DoneCh <- err
+		close(job.ProgressCh)
+		close(job.DoneCh)
+	}
 }
 
 // NewClient creates a new WebSocket client.
@@ -38,12 +115,14 @@ func NewClient(serverURL string) (*Client, error) {
 	}
 
 	client := &Client{
-		url:        serverURL,
-		conn:       conn,
-		pending:    make(map[int]chan json.RawMessage),
-		notifyChan: make(chan os.Signal, 1),
-		closeChan:  make(chan bool),
+		url:       serverURL,
+		conn:      conn,
+		pending:   make(map[int]chan json.RawMessage),
+		closeChan: make(chan struct{}),
+		jobs:      NewJobs(nil),
 	}
+
+	client.jobs = NewJobs(client)
 
 	go client.listen()
 
@@ -91,14 +170,18 @@ func (c *Client) Call(method string, params interface{}) (json.RawMessage, error
 		"params":  params,
 	}
 
+	// Log that we are sending the request
+	log.Printf("Sending request: %v", request)
+
 	if err := c.conn.WriteJSON(request); err != nil {
 		return nil, fmt.Errorf("failed to send call: %w", err)
 	}
 
 	select {
 	case res := <-responseChan:
+		log.Printf("Received response: %v", string(res))
 		return res, nil
-	case <-time.After(10 * time.Second):
+	case <-time.After(300 * time.Second):
 		return nil, errors.New("call timed out")
 	}
 }
@@ -128,6 +211,7 @@ func (c *Client) listen() {
 			if ch, exists := c.pending[callID]; exists {
 				ch <- message
 			}
+			log.Printf("received response: %s", message)
 			c.mu.Unlock()
 		} else {
 			log.Printf("received notification: %s", message)
@@ -135,10 +219,61 @@ func (c *Client) listen() {
 	}
 }
 
+// CallWithJob sends an RPC call that returns a job ID and tracks the long-running job.
+func (c *Client) CallWithJob(method string, params interface{}) (*Job, error) {
+	// Call the API method
+	res, err := c.Call(method, params)
+	if err != nil {
+		return nil, err
+	}
+
+	// Parse the response and extract the job ID
+	var response map[string]interface{}
+	if err := json.Unmarshal(res, &response); err != nil {
+		return nil, fmt.Errorf("failed to parse response: %w", err)
+	}
+
+	if errorData, exists := response["error"]; exists {
+		return nil, fmt.Errorf("API error: %v", errorData)
+	}
+
+	jobID, ok := response["result"].(float64)
+	if !ok {
+		return nil, fmt.Errorf("unexpected response format for job")
+	}
+
+	// Add the job to the Jobs manager
+	job := c.jobs.AddJob(int64(jobID), method)
+
+	// Return the Job instance to allow tracking
+	return job, nil
+}
+
 // Ping sends a ping request to the server.
-func (c *Client) Ping() error {
-	_, err := c.Call("core.ping", []interface{}{}) // Pass an empty array as params
-	return err
+func (c *Client) Ping() (string, error) {
+	res, err := c.Call("core.ping", []interface{}{}) // Pass an empty array as params
+
+	if err != nil {
+		return "", err
+	}
+
+	// Parse the result from the response
+	var response map[string]interface{}
+	if err := json.Unmarshal(res, &response); err != nil {
+		return "", fmt.Errorf("failed to parse ping response: %w", err)
+	}
+
+	// Check if there's an error in the ping response
+	if errorData, exists := response["error"]; exists {
+		return "", fmt.Errorf("ping error: %v", errorData)
+	}
+
+	// Return the result (e.g., "pong") from the response
+	if result, exists := response["result"].(string); exists {
+		return result, nil
+	}
+
+	return "", errors.New("unexpected ping response format")
 }
 
 // Login attempts to log in using username/password or API key.
