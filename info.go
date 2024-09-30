@@ -1,6 +1,9 @@
 package main
 
 import (
+	"bytes"
+	"encoding/json"
+	"fmt"
 	"log"
 	"os"
 	"truenas_api/truenas_api"
@@ -28,7 +31,7 @@ func main() {
 	// Example login with username and password
 	username := ""
 	password := ""
-	apiKey := "" // Leave empty if using username/password
+	apiKey := "3-gd8JSwGbWoTiJdEXRHU9yRp5oke0KFYAZhUZPTjFKOiWjtKscdFodEDLNncwXbUe" // Leave empty if using username/password
 	//apiKey := ""
 
 	err = client.Login(username, password, apiKey)
@@ -37,14 +40,18 @@ func main() {
 	}
 	log.Println("Login successful!")
 
-	client.Ping()
+	pres, perr := client.Ping()
+	fmt.Println(pres, perr)
 
 	// The params are wrapped in an array inside the Call function
 	res, err := client.Call("system.info", []interface{}{})
 	if err != nil {
 		log.Fatalf("failed to call system.info: %v", err)
 	}
-	log.Printf("Result: %s", res)
+	//log.Printf("Result: %s", res)
+	var prettyJSON bytes.Buffer
+	json.Indent(&prettyJSON, res, "", "\t")
+	log.Printf("Result: %s", prettyJSON.String())
 
 	// Graceful shutdown
 	client.Close()

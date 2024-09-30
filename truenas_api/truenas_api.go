@@ -40,16 +40,33 @@ type Job struct {
 
 // Jobs manages long-running tasks.
 type Jobs struct {
-	client *Client
-	jobs   map[int64]*Job
-	mu     sync.Mutex
+	client      *Client
+	jobs        map[int64]*Job
+	ownedJobIDs map[int64]bool // Store the job IDs that were started by this client
+	mu          sync.Mutex
+}
+
+// AddOwnedJob adds a job ID to the list of jobs started by this client.
+func (j *Jobs) AddOwnedJob(jobID int64) {
+	j.mu.Lock()
+	defer j.mu.Unlock()
+	j.ownedJobIDs[jobID] = true
+}
+
+// IsOwnedJob checks if a given job ID was started by this client.
+func (j *Jobs) IsOwnedJob(jobID int64) bool {
+	j.mu.Lock()
+	defer j.mu.Unlock()
+	_, exists := j.ownedJobIDs[jobID]
+	return exists
 }
 
 // NewJobs creates a new Jobs manager.
 func NewJobs(client *Client) *Jobs {
 	return &Jobs{
-		client: client,
-		jobs:   make(map[int64]*Job),
+		client:      client,
+		jobs:        make(map[int64]*Job),
+		ownedJobIDs: map[int64]bool{},
 	}
 }
 
@@ -102,6 +119,34 @@ func (j *Jobs) UpdateJobState(jobID int64, state string, progress float64, resul
 	}
 }
 
+// SubscribeToJobs subscribes to job updates from the WebSocket.
+func (c *Client) SubscribeToJobs() error {
+	// params := []interface{}{"core.get_jobs"}
+	// res, err := c.Call("core.subscribe", params)
+	//params := []interface{}
+	//res, err := c.Call("core.subscribe", []interface{}{jobIDs})
+	//if err != nil {
+	//	return err
+	//}
+
+	params := []interface{}{"core.get_jobs"}
+
+	// Make the subscription call
+	res, err := c.Call("core.subscribe", params)
+	if err != nil {
+		return err
+	}
+
+	// Parse subscription result
+	var response map[string]interface{}
+	if err := json.Unmarshal(res, &response); err != nil {
+		return fmt.Errorf("failed to parse subscription response: %w", err)
+	}
+
+	log.Println("Subscribed to job updates successfully!")
+	return nil
+}
+
 // NewClient creates a new WebSocket client.
 func NewClient(serverURL string) (*Client, error) {
 	u, err := url.Parse(serverURL)
@@ -124,7 +169,7 @@ func NewClient(serverURL string) (*Client, error) {
 
 	client.jobs = NewJobs(client)
 
-	go client.listen()
+	go client.listen() // Start listening for incoming messages
 
 	return client, nil
 }
@@ -179,7 +224,7 @@ func (c *Client) Call(method string, params interface{}) (json.RawMessage, error
 
 	select {
 	case res := <-responseChan:
-		log.Printf("Received response: %v", string(res))
+		//log.Printf("Received response: %v", string(res))
 		return res, nil
 	case <-time.After(300 * time.Second):
 		return nil, errors.New("call timed out")
@@ -189,32 +234,69 @@ func (c *Client) Call(method string, params interface{}) (json.RawMessage, error
 // listen handles incoming messages from the WebSocket server.
 func (c *Client) listen() {
 	for {
-		_, message, err := c.conn.ReadMessage()
-		if err != nil {
-			if !websocket.IsCloseError(err, websocket.CloseNormalClosure, websocket.CloseGoingAway) {
-				log.Printf("error reading message: %v", err)
-			}
-			c.Close()
+		select {
+		case <-c.closeChan:
 			return
-		}
-
-		var response map[string]interface{}
-		if err := json.Unmarshal(message, &response); err != nil {
-			log.Printf("error unmarshaling response: %v", err)
-			continue
-		}
-
-		// float64 "looks" wrong, but Javascript kinda only knows floats.
-		if id, ok := response["id"].(float64); ok {
-			callID := int(id)
-			c.mu.Lock()
-			if ch, exists := c.pending[callID]; exists {
-				ch <- message
+		default:
+			_, message, err := c.conn.ReadMessage()
+			if err != nil {
+				if !websocket.IsCloseError(err, websocket.CloseNormalClosure, websocket.CloseGoingAway) {
+					log.Printf("error reading message: %v", err)
+				}
+				c.Close()
+				return
 			}
-			log.Printf("received response: %s", message)
-			c.mu.Unlock()
-		} else {
-			log.Printf("received notification: %s", message)
+
+			// Log the message received
+			//log.Printf("Received message: %s", message)
+
+			var response map[string]interface{}
+			if err := json.Unmarshal(message, &response); err != nil {
+				log.Printf("error unmarshaling response: %v", err)
+				continue
+			}
+
+			// Handle job progress updates
+			//log.Printf("method: %v", response["method"])
+			if method, ok := response["method"].(string); ok && method == "collection_update" {
+				//log.Printf("Message is a job progress update: %s", message)
+				params := response["params"].(map[string]interface{})
+				jobID := int64(params["id"].(float64))
+				fields := params["fields"].(map[string]interface{})
+
+				// Only handle jobs started by this client
+				if c.jobs.IsOwnedJob(jobID) {
+					progress, ok := fields["progress"].(map[string]interface{})
+					description, ok := progress["description"].(string)
+					percent, ok := progress["percent"].(float64)
+					if !ok {
+						percent = 0
+					}
+					state, ok := fields["state"].(string)
+					if !ok {
+						state = "unknown"
+					}
+					// Log job updates
+					log.Printf("Job update (started by this client): ID=%d, progress=%.2f%%, description = %s, state=%s", jobID, percent, description, state)
+
+					// Update the job state in the Jobs manager
+					c.jobs.UpdateJobState(jobID, state, percent, nil, nil)
+				}
+				continue
+			}
+
+			// float64 "looks" wrong, but Javascript kinda only knows floats.
+			if id, ok := response["id"].(float64); ok {
+				callID := int(id)
+				c.mu.Lock()
+				if ch, exists := c.pending[callID]; exists {
+					ch <- message
+				}
+				//log.Printf("received response: %s", message)
+				c.mu.Unlock()
+			} else {
+				// log.Printf("received notification: %s", message)
+			}
 		}
 	}
 }
@@ -244,6 +326,9 @@ func (c *Client) CallWithJob(method string, params interface{}) (*Job, error) {
 
 	// Add the job to the Jobs manager
 	job := c.jobs.AddJob(int64(jobID), method)
+
+	// Mark this job as owned by this client
+	c.jobs.AddOwnedJob(int64(jobID))
 
 	// Return the Job instance to allow tracking
 	return job, nil
