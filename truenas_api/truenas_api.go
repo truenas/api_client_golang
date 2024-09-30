@@ -215,16 +215,12 @@ func (c *Client) Call(method string, params interface{}) (json.RawMessage, error
 		"params":  params,
 	}
 
-	// Log that we are sending the request
-	log.Printf("Sending request: %v", request)
-
 	if err := c.conn.WriteJSON(request); err != nil {
 		return nil, fmt.Errorf("failed to send call: %w", err)
 	}
 
 	select {
 	case res := <-responseChan:
-		//log.Printf("Received response: %v", string(res))
 		return res, nil
 	case <-time.After(300 * time.Second):
 		return nil, errors.New("call timed out")
@@ -247,19 +243,13 @@ func (c *Client) listen() {
 				return
 			}
 
-			// Log the message received
-			//log.Printf("Received message: %s", message)
-
 			var response map[string]interface{}
 			if err := json.Unmarshal(message, &response); err != nil {
 				log.Printf("error unmarshaling response: %v", err)
 				continue
 			}
 
-			// Handle job progress updates
-			//log.Printf("method: %v", response["method"])
 			if method, ok := response["method"].(string); ok && method == "collection_update" {
-				//log.Printf("Message is a job progress update: %s", message)
 				params := response["params"].(map[string]interface{})
 				jobID := int64(params["id"].(float64))
 				fields := params["fields"].(map[string]interface{})
@@ -292,10 +282,10 @@ func (c *Client) listen() {
 				if ch, exists := c.pending[callID]; exists {
 					ch <- message
 				}
-				//log.Printf("received response: %s", message)
+
 				c.mu.Unlock()
 			} else {
-				// log.Printf("received notification: %s", message)
+
 			}
 		}
 	}

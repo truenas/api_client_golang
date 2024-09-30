@@ -45,7 +45,11 @@ func main() {
 		"username":     "user2",
 		"password":     "pass",
 		"group_create": true,
-		//"job":          true,
+	}
+
+	// Subscribe to job updates
+	if err := client.SubscribeToJobs(); err != nil {
+		log.Fatalf("failed to subscribe to job updates: %v", err)
 	}
 
 	job, err := client.CallWithJob("user.create", []interface{}{params})
@@ -53,11 +57,6 @@ func main() {
 		log.Fatalf("failed to create user: %v", err)
 	}
 	log.Printf("Started long-running job with ID: %d", job.ID)
-
-	// Subscribe to job updates
-	if err := client.SubscribeToJobs(); err != nil {
-		log.Fatalf("failed to subscribe to job updates: %v", err)
-	}
 
 	// Monitor the progress of the long-running job
 	for !job.Finished {
