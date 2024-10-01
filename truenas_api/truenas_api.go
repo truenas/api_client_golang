@@ -35,7 +35,7 @@ type Job struct {
 	Progress   float64
 	Finished   bool
 	ProgressCh chan float64
-	DoneCh     chan error
+	DoneCh     chan string
 }
 
 // Jobs manages long-running tasks.
@@ -79,7 +79,7 @@ func (j *Jobs) AddJob(jobID int64, method string) *Job {
 		Method:     method,
 		State:      "PENDING",
 		ProgressCh: make(chan float64),
-		DoneCh:     make(chan error),
+		DoneCh:     make(chan string),
 	}
 	j.jobs[jobID] = job
 	return job
@@ -101,7 +101,7 @@ func (j *Jobs) RemoveJob(jobID int64) {
 }
 
 // UpdateJobState updates the state of a long-running job.
-func (j *Jobs) UpdateJobState(jobID int64, state string, progress float64, result interface{}, err error) {
+func (j *Jobs) UpdateJobState(jobID int64, state string, progress float64, result interface{}, err string) {
 	j.mu.Lock()
 	defer j.mu.Unlock()
 	job, exists := j.jobs[jobID]
@@ -256,6 +256,7 @@ func (c *Client) listen() {
 
 				// Only handle jobs started by this client
 				if c.jobs.IsOwnedJob(jobID) {
+					// log.Printf("Message received for job ID %d: %v", jobID, string(message))
 					progress, ok := fields["progress"].(map[string]interface{})
 					description, ok := progress["description"].(string)
 					percent, ok := progress["percent"].(float64)
@@ -266,11 +267,20 @@ func (c *Client) listen() {
 					if !ok {
 						state = "unknown"
 					}
+					result, ok := fields["result"].(string)
+					if !ok {
+						result = ""
+					}
+					errors, ok := fields["error"].(string)
+					if !ok {
+						errors = ""
+					}
+
 					// Log job updates
-					log.Printf("Job update (started by this client): ID=%d, progress=%.2f%%, description = %s, state=%s", jobID, percent, description, state)
+					log.Printf("Job update (started by this client): ID=%d, progress=%.2f%%, description = %s, state=%s, result=%s, errors=%v", jobID, percent, description, state, result, errors)
 
 					// Update the job state in the Jobs manager
-					c.jobs.UpdateJobState(jobID, state, percent, nil, nil)
+					c.jobs.UpdateJobState(jobID, state, percent, result, errors)
 				}
 				continue
 			}
