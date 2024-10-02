@@ -125,7 +125,7 @@ func (c *Client) SubscribeToJobs() error {
 	params := []interface{}{"core.get_jobs"}
 
 	// Make the subscription call
-	res, err := c.Call("core.subscribe", params)
+	res, err := c.Call("core.subscribe", 10, params)
 	if err != nil {
 		return err
 	}
@@ -184,7 +184,7 @@ func (c *Client) Close() error {
 }
 
 // Call sends an RPC call to the server and waits for a response.
-func (c *Client) Call(method string, params interface{}) (json.RawMessage, error) {
+func (c *Client) Call(method string, timeout time.Duration, params interface{}) (json.RawMessage, error) {
 	c.mu.Lock()
 	c.callID++
 	callID := c.callID
@@ -214,7 +214,7 @@ func (c *Client) Call(method string, params interface{}) (json.RawMessage, error
 	select {
 	case res := <-responseChan:
 		return res, nil
-	case <-time.After(300 * time.Second):
+	case <-time.After(timeout * time.Second):
 		return nil, errors.New("call timed out")
 	}
 }
@@ -300,7 +300,7 @@ func (c *Client) listen() {
 // CallWithJob sends an RPC call that returns a job ID and tracks the long-running job.
 func (c *Client) CallWithJob(method string, params interface{}, callback func(progress float64, state string, desc string)) (*Job, error) {
 	// Call the API method
-	res, err := c.Call(method, params)
+	res, err := c.Call(method, 10, params)
 	if err != nil {
 		return nil, err
 	}
@@ -335,7 +335,7 @@ func (c *Client) CallWithJob(method string, params interface{}, callback func(pr
 
 // Ping sends a ping request to the server.
 func (c *Client) Ping() (string, error) {
-	res, err := c.Call("core.ping", []interface{}{}) // Pass an empty array as params
+	res, err := c.Call("core.ping", 10, []interface{}{}) // Pass an empty array as params
 
 	if err != nil {
 		return "", err
@@ -379,7 +379,7 @@ func (c *Client) Login(username, password, apiKey string) error {
 	}
 
 	// Make the login call
-	res, err := c.Call(method, params)
+	res, err := c.Call(method, 10, params)
 	if err != nil {
 		return fmt.Errorf("login failed: %w", err)
 	}

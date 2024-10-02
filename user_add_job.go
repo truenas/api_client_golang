@@ -52,7 +52,10 @@ func main() {
 		log.Fatalf("failed to subscribe to job updates: %v", err)
 	}
 
-	job, err := client.CallWithJob("user.create", []interface{}{params})
+	job, err := client.CallWithJob("user.create", []interface{}{params}, func(progress float64, state string, description string) {
+		// This callback is called with the progress and state of the job
+		log.Printf("Job Progress: %.2f%%, State: %s, Description: %s", progress, state, description)
+	})
 	if err != nil {
 		log.Fatalf("failed to create user: %v", err)
 	}
@@ -64,14 +67,14 @@ func main() {
 		case progress := <-job.ProgressCh:
 			log.Printf("Job progress: %.2f%%", progress)
 		case err := <-job.DoneCh:
-			if err != nil {
+			if err != "" {
 				log.Fatalf("Job failed: %v", err)
+			} else {
+				log.Println("Job completed successfully!")
 			}
-			log.Println("Job completed successfully!")
+			client.Close()
 		}
 	}
 
-	// Close the connection after the work is done
-	client.Close()
 	log.Println("Client closed.")
 }

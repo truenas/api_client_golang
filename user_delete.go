@@ -3,17 +3,19 @@ package main
 import (
 	"log"
 	"os"
+	"strconv"
 	"truenas_api/truenas_api"
 )
 
 // example usage
 func main() {
 	if len(os.Args) < 2 {
-		log.Fatal("Please provide the TrueNAS server as an argument")
+		log.Fatal("Please provide the TrueNAS server as an argument and the id to delete")
 		os.Exit(1)
 	}
 
 	server := os.Args[1]
+	id, _ := strconv.Atoi(os.Args[2])
 
 	log.Printf("Connecting to TrueNAS server at %s", server)
 
@@ -39,11 +41,8 @@ func main() {
 
 	client.Ping()
 
-	// Example call to delete a user
-	params := 102
-
 	// The params are wrapped in an array inside the Call function
-	res, err := client.Call("user.delete", []interface{}{params})
+	res, err := client.Call("user.delete", 10, []interface{}{id})
 	if err != nil {
 		log.Fatalf("failed to delete user: %v", err)
 	}

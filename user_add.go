@@ -48,7 +48,7 @@ func main() {
 	}
 
 	// The params are wrapped in an array inside the Call function
-	res, err := client.Call("user.create", []interface{}{params})
+	res, err := client.Call("user.create", 10, []interface{}{params})
 	if err != nil {
 		log.Fatalf("failed to create user: %v", err)
 	}

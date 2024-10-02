@@ -43,11 +43,11 @@ func main() {
 	params := []interface{}{}
 
 	// The params are wrapped in an array inside the Call function
-	res, err := client.Call("user.query", []interface{}{params})
+	res, err := client.Call("user.query", 10, []interface{}{params})
 	if err != nil {
 		log.Fatalf("failed to query user: %v", err)
 	}
-	log.Printf("User query: %s", res)
+	log.Printf("%s", res)
 
 	// Graceful shutdown
 	client.Close()

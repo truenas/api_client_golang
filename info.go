@@ -31,7 +31,7 @@ func main() {
 	// Example login with username and password
 	username := ""
 	password := ""
-	apiKey := "3-gd8JSwGbWoTiJdEXRHU9yRp5oke0KFYAZhUZPTjFKOiWjtKscdFodEDLNncwXbUe" // Leave empty if using username/password
+	apiKey := "" // Leave empty if using username/password
 	//apiKey := ""
 
 	err = client.Login(username, password, apiKey)
@@ -44,7 +44,7 @@ func main() {
 	fmt.Println(pres, perr)
 
 	// The params are wrapped in an array inside the Call function
-	res, err := client.Call("system.info", []interface{}{})
+	res, err := client.Call("system.info", 10, []interface{}{})
 	if err != nil {
 		log.Fatalf("failed to call system.info: %v", err)
 	}
