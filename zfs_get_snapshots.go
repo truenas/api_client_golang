@@ -56,7 +56,7 @@ func main() {
 
 	job, err := client.Call("zfs.snapshot.query", 200, []interface{}{params})
 	if err != nil {
-		log.Fatalf("failed to snapshot user: %v", err)
+		log.Fatalf("failed to query snapshots: %v", err)
 	}
 
 	log.Printf("Dataset snapshots: %v", string(job))
