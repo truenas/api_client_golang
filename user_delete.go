@@ -21,7 +21,7 @@ func main() {
 
 	serverURL := "ws://" + server + "/api/current"
 
-	client, err := truenas_api.NewClient(serverURL)
+	client, err := truenas_api.NewClient(serverURL, false)
 	if err != nil {
 		log.Fatalf("failed to connect: %v", err)
 	}

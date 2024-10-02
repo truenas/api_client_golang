@@ -1,6 +1,7 @@
 package truenas_api
 
 import (
+	"crypto/tls"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -140,13 +141,24 @@ func (c *Client) SubscribeToJobs() error {
 }
 
 // NewClient creates a new WebSocket client.
-func NewClient(serverURL string) (*Client, error) {
+func NewClient(serverURL string, verifySSL bool) (*Client, error) {
 	u, err := url.Parse(serverURL)
 	if err != nil {
 		return nil, fmt.Errorf("invalid URL: %w", err)
 	}
 
-	conn, _, err := websocket.DefaultDialer.Dial(u.String(), nil)
+	// Configure WebSocket options
+	dialer := websocket.DefaultDialer
+	if u.Scheme == "wss" && !verifySSL {
+		// If we are using wss and SSL verification is disabled
+		dialer.TLSClientConfig = &tls.Config{InsecureSkipVerify: true}
+	} else if u.Scheme == "wss" && verifySSL {
+		// Optionally configure additional TLS settings here if needed
+		dialer.TLSClientConfig = &tls.Config{InsecureSkipVerify: false}
+	}
+
+	// Establish WebSocket connection
+	conn, _, err := dialer.Dial(u.String(), nil)
 	if err != nil {
 		return nil, fmt.Errorf("failed to connect: %w", err)
 	}
