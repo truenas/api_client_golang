@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"log"
 	"net/url"
 	"os"
 	"sync"
@@ -36,6 +35,7 @@ type Job struct {
 	Finished   bool
 	ProgressCh chan float64
 	DoneCh     chan string
+	Callback   func(progress float64, state string, desc string) // Callback function for updates
 }
 
 // Jobs manages long-running tasks.
@@ -121,13 +121,6 @@ func (j *Jobs) UpdateJobState(jobID int64, state string, progress float64, resul
 
 // SubscribeToJobs subscribes to job updates from the WebSocket.
 func (c *Client) SubscribeToJobs() error {
-	// params := []interface{}{"core.get_jobs"}
-	// res, err := c.Call("core.subscribe", params)
-	//params := []interface{}
-	//res, err := c.Call("core.subscribe", []interface{}{jobIDs})
-	//if err != nil {
-	//	return err
-	//}
 
 	params := []interface{}{"core.get_jobs"}
 
@@ -143,7 +136,6 @@ func (c *Client) SubscribeToJobs() error {
 		return fmt.Errorf("failed to parse subscription response: %w", err)
 	}
 
-	log.Println("Subscribed to job updates successfully!")
 	return nil
 }
 
@@ -237,7 +229,7 @@ func (c *Client) listen() {
 			_, message, err := c.conn.ReadMessage()
 			if err != nil {
 				if !websocket.IsCloseError(err, websocket.CloseNormalClosure, websocket.CloseGoingAway) {
-					log.Printf("error reading message: %v", err)
+					// log.Printf("error reading message: %v", err)
 				}
 				c.Close()
 				return
@@ -245,7 +237,6 @@ func (c *Client) listen() {
 
 			var response map[string]interface{}
 			if err := json.Unmarshal(message, &response); err != nil {
-				log.Printf("error unmarshaling response: %v", err)
 				continue
 			}
 
@@ -256,7 +247,7 @@ func (c *Client) listen() {
 
 				// Only handle jobs started by this client
 				if c.jobs.IsOwnedJob(jobID) {
-					// log.Printf("Message received for job ID %d: %v", jobID, string(message))
+
 					progress, ok := fields["progress"].(map[string]interface{})
 					description, ok := progress["description"].(string)
 					percent, ok := progress["percent"].(float64)
@@ -277,10 +268,15 @@ func (c *Client) listen() {
 					}
 
 					// Log job updates
-					log.Printf("Job update (started by this client): ID=%d, progress=%.2f%%, description = %s, state=%s, result=%s, errors=%v", jobID, percent, description, state, result, errors)
+					//log.Printf("Job update (started by this client): ID=%d, progress=%.2f%%, description = %s, state=%s, result=%s, errors=%v", jobID, percent, description, state, result, errors)
 
 					// Update the job state in the Jobs manager
 					c.jobs.UpdateJobState(jobID, state, percent, result, errors)
+
+					// Trigger the callback if it exists
+					if job, exists := c.jobs.jobs[jobID]; exists && job.Callback != nil {
+						job.Callback(percent, state, description) // Call the callback with progress and state
+					}
 				}
 				continue
 			}
@@ -302,7 +298,7 @@ func (c *Client) listen() {
 }
 
 // CallWithJob sends an RPC call that returns a job ID and tracks the long-running job.
-func (c *Client) CallWithJob(method string, params interface{}) (*Job, error) {
+func (c *Client) CallWithJob(method string, params interface{}, callback func(progress float64, state string, desc string)) (*Job, error) {
 	// Call the API method
 	res, err := c.Call(method, params)
 	if err != nil {
@@ -329,6 +325,9 @@ func (c *Client) CallWithJob(method string, params interface{}) (*Job, error) {
 
 	// Mark this job as owned by this client
 	c.jobs.AddOwnedJob(int64(jobID))
+
+	// Set the callback function
+	job.Callback = callback
 
 	// Return the Job instance to allow tracking
 	return job, nil
