@@ -57,15 +57,13 @@ func main() {
 	}
 	defer client.Close()
 
-	// Example login with username and password
-	username := ""
-	password := ""
-	apiKey := "4-4pl8LTq6aFhFMPMvhjbjDxSYxS6IfXaAwy3LhCcQhwnrVUs0g8oAYvSssZEUdyvl" // Leave empty if using username/password
-	//apiKey := ""
+	username := os.Getenv("TRUENAS_USERNAME")
+	password := os.Getenv("TRUENAS_PASSWORD")
+	apiKey := os.Getenv("TRUENAS_API_KEY")
 
-	err = client.Login(username, password, apiKey)
-	if err != nil {
-		log.Fatalf("login failed: %v", err)
+	// Logging in with username/password or API key.
+	if err := client.Login(username, password, apiKey); err != nil {
+		log.Fatalf("Login failed: %v", err)
 	}
 	log.Println("Login successful!")
 
@@ -73,11 +71,6 @@ func main() {
 
 	// Directly pass the list as a parameter to Call
 	params := []interface{}{}
-
-	// Subscribe to job updates
-	if err := client.SubscribeToJobs(); err != nil {
-		log.Fatalf("failed to subscribe to job updates: %v", err)
-	}
 
 	response, err := client.Call("app.query", 10, []interface{}{params})
 	if err != nil {
