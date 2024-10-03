@@ -19,12 +19,16 @@ It is JSON-RPC 2.0 based, so it doesn't use the ws://truenas.address/websocket A
 On any system with Go installed  (see https://go.dev/doc/install), clone this repo.
 
 Then build the truenas_go command:
+
 go build truenas_go.go
+
 go install truenas_go.go
 
 
 Example run:
+
 export TRUENAS_API_KEY="1-xxxxxxxxx" # Create this on your TrueNAS, and copy the result here
+
 truenas_go --uri ws://ip_of_your_truenas/api/current --api-key=${TRUENAS_API_KEY} --timeout 20 --method system.info
 
 More command line examples in EXAMPLES.md
