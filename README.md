@@ -18,14 +18,18 @@ It is JSON-RPC 2.0 based, so it doesn't use the ws://truenas.address/websocket A
 
 On any system with Go installed  (see https://go.dev/doc/install), clone this repo.
 
-Edit user_add.go to supply the authentication values (user and pass, or apiKey in the main() function.)
+Then build the truenas_go command:
+go build truenas_go.go
+go install truenas_go.go
 
-go get github.com/gorilla/websocket
-go build user_add.go
 
-./user_add <TrueNAS IP or server name>
+Example run:
+export TRUENAS_API_KEY="1-xxxxxxxxx" # Create this on your TrueNAS, and copy the result here
+truenas_go --uri ws://ip_of_your_truenas/api/current --api-key=${TRUENAS_API_KEY} --timeout 20 --method system.info
 
-It will attempt to log in, ping the server using the API ping call, and then create a user named "user2".  Failures will appear on stderr.
+More command line examples in EXAMPLES.md
+
+Code examples in examples/
 
 
 
