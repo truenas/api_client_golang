@@ -33,14 +33,14 @@ func printPrettyJSON(data interface{}) {
 
 func main() {
 	// Define command-line flags
-	serverURL := flag.String("url", "", "WebSocket server URL (e.g., ws://localhost:6000/websocket)")
+	serverURL := flag.String("uri", "", "WebSocket server URI (e.g., ws://localhost:6000/websocket)")
 	method := flag.String("method", "", "RPC method to call (e.g., core.ping)")
 	jsonArgs := flag.String("params", "[]", "JSON-formatted arguments for the method (e.g., '[\"param1\", \"param2\"]')")
 	timeout := flag.Int("timeout", 10, "Timeout in seconds for the call")
 	verifySSL := flag.Bool("verifyssl", true, "Verify SSL certificates for wss:// connections")
 	jobFlag := flag.Bool("job", false, "Use CallWithJob for methods that return a job ID")
-	user := flag.String("user", "", "Username for login")
-	pass := flag.String("pass", "", "Password for login")
+	user := flag.String("U", "", "Username for login")
+	pass := flag.String("P", "", "Password for login")
 	apiKey := flag.String("api-key", "", "API key for login")
 
 	// Parse the flags
