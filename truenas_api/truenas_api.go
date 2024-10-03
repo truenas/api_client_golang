@@ -15,35 +15,35 @@ import (
 
 // Client encapsulates the connection to the WebSocket server.
 type Client struct {
-	url        string
-	conn       *websocket.Conn
-	mu         sync.Mutex
-	isClosed   bool
-	callID     int
-	pending    map[int]chan json.RawMessage
-	notifyChan chan os.Signal
-	closeChan  chan struct{}
-	jobs       *Jobs // Jobs manager to track long-running jobs
+	url        string                       // WebSocket server URL
+	conn       *websocket.Conn              // WebSocket connection instance
+	mu         sync.Mutex                   // Mutex for ensuring thread-safety
+	isClosed   bool                         // Indicates if the connection is closed
+	callID     int                          // Unique ID for tracking each call
+	pending    map[int]chan json.RawMessage // Stores pending calls, maps call IDs to response channels
+	notifyChan chan os.Signal               // For handling notifications (e.g., OS signals)
+	closeChan  chan struct{}                // Channel to signal when the connection should be closed
+	jobs       *Jobs                        // Jobs manager to track long-running jobs
 }
 
 // Job represents a long-running job in TrueNAS.
 type Job struct {
-	ID         int64
-	Method     string
-	State      string
-	Result     interface{}
-	Progress   float64
-	Finished   bool
-	ProgressCh chan float64
-	DoneCh     chan string
-	Callback   func(progress float64, state string, desc string) // Callback function for updates
+	ID         int64                                             // Job ID
+	Method     string                                            // Method associated with the job
+	State      string                                            // Current state of the job (e.g., "PENDING", "SUCCESS")
+	Result     interface{}                                       // Result of the job once it finishes
+	Progress   float64                                           // Progress of the job (0.0 to 100.0)
+	Finished   bool                                              // Indicates if the job is finished
+	ProgressCh chan float64                                      // Channel to report progress updates
+	DoneCh     chan string                                       // Channel to signal when the job is done
+	Callback   func(progress float64, state string, desc string) // Callback function to report progress and state
 }
 
 // Jobs manages long-running tasks.
 type Jobs struct {
-	client      *Client
-	jobs        map[int64]*Job
-	ownedJobIDs map[int64]bool // Store the job IDs that were started by this client
+	client      *Client        // Reference to the WebSocket client
+	jobs        map[int64]*Job // Maps job IDs to their corresponding job objects
+	ownedJobIDs map[int64]bool // Stores the job IDs that were started by this client
 	mu          sync.Mutex
 }
 
@@ -51,14 +51,14 @@ type Jobs struct {
 func (j *Jobs) AddOwnedJob(jobID int64) {
 	j.mu.Lock()
 	defer j.mu.Unlock()
-	j.ownedJobIDs[jobID] = true
+	j.ownedJobIDs[jobID] = true // Mark this job as "owned" by the client
 }
 
 // IsOwnedJob checks if a given job ID was started by this client.
 func (j *Jobs) IsOwnedJob(jobID int64) bool {
 	j.mu.Lock()
 	defer j.mu.Unlock()
-	_, exists := j.ownedJobIDs[jobID]
+	_, exists := j.ownedJobIDs[jobID] // Check if the job ID exists in ownedJobIDs
 	return exists
 }
 
@@ -67,7 +67,7 @@ func NewJobs(client *Client) *Jobs {
 	return &Jobs{
 		client:      client,
 		jobs:        make(map[int64]*Job),
-		ownedJobIDs: map[int64]bool{},
+		ownedJobIDs: make(map[int64]bool),
 	}
 }
 
@@ -82,7 +82,7 @@ func (j *Jobs) AddJob(jobID int64, method string) *Job {
 		ProgressCh: make(chan float64),
 		DoneCh:     make(chan string),
 	}
-	j.jobs[jobID] = job
+	j.jobs[jobID] = job // Add job to jobs map
 	return job
 }
 
@@ -90,7 +90,7 @@ func (j *Jobs) AddJob(jobID int64, method string) *Job {
 func (j *Jobs) GetJob(jobID int64) (*Job, bool) {
 	j.mu.Lock()
 	defer j.mu.Unlock()
-	job, exists := j.jobs[jobID]
+	job, exists := j.jobs[jobID] // Retrieve the job by ID
 	return job, exists
 }
 
@@ -98,7 +98,7 @@ func (j *Jobs) GetJob(jobID int64) (*Job, bool) {
 func (j *Jobs) RemoveJob(jobID int64) {
 	j.mu.Lock()
 	defer j.mu.Unlock()
-	delete(j.jobs, jobID)
+	delete(j.jobs, jobID) // Remove job from jobs map
 }
 
 // UpdateJobState updates the state of a long-running job.
@@ -107,25 +107,23 @@ func (j *Jobs) UpdateJobState(jobID int64, state string, progress float64, resul
 	defer j.mu.Unlock()
 	job, exists := j.jobs[jobID]
 	if !exists {
-		return
+		return // If the job doesn't exist, return
 	}
 	job.State = state
 	job.Progress = progress
 	if state == "SUCCESS" || state == "FAILED" {
 		job.Finished = true
 		job.Result = result
-		job.DoneCh <- err
-		close(job.ProgressCh)
-		close(job.DoneCh)
+		job.DoneCh <- err     // Send error (if any) to the done channel
+		close(job.ProgressCh) // Close progress channel after job completion
+		close(job.DoneCh)     // Close done channel after job completion
 	}
 }
 
-// SubscribeToJobs subscribes to job updates from the WebSocket.
 func (c *Client) SubscribeToJobs() error {
+	params := []interface{}{"core.get_jobs"} // Core function to subscribe to job updates
 
-	params := []interface{}{"core.get_jobs"}
-
-	// Make the subscription call
+	// Make the subscription call via WebSocket
 	res, err := c.Call("core.subscribe", 10, params)
 	if err != nil {
 		return err
@@ -140,24 +138,20 @@ func (c *Client) SubscribeToJobs() error {
 	return nil
 }
 
-// NewClient creates a new WebSocket client.
+// NewClient creates a new WebSocket client connection.
 func NewClient(serverURL string, verifySSL bool) (*Client, error) {
 	u, err := url.Parse(serverURL)
 	if err != nil {
 		return nil, fmt.Errorf("invalid URL: %w", err)
 	}
 
-	// Configure WebSocket options
+	// Configure WebSocket connection options
 	dialer := websocket.DefaultDialer
 	if u.Scheme == "wss" && !verifySSL {
-		// If we are using wss and SSL verification is disabled
-		dialer.TLSClientConfig = &tls.Config{InsecureSkipVerify: true}
-	} else if u.Scheme == "wss" && verifySSL {
-		// Optionally configure additional TLS settings here if needed
-		dialer.TLSClientConfig = &tls.Config{InsecureSkipVerify: false}
+		dialer.TLSClientConfig = &tls.Config{InsecureSkipVerify: true} // Disable SSL verification for wss
 	}
 
-	// Establish WebSocket connection
+	// Establish the WebSocket connection
 	conn, _, err := dialer.Dial(u.String(), nil)
 	if err != nil {
 		return nil, fmt.Errorf("failed to connect: %w", err)
@@ -173,7 +167,7 @@ func NewClient(serverURL string, verifySSL bool) (*Client, error) {
 
 	client.jobs = NewJobs(client)
 
-	go client.listen() // Start listening for incoming messages
+	go client.listen() // Start listening for WebSocket messages
 
 	return client, nil
 }
@@ -184,34 +178,33 @@ func (c *Client) Close() error {
 	defer c.mu.Unlock()
 
 	if c.isClosed {
-		return nil
+		return nil // Return if connection is already closed
 	}
 	c.isClosed = true
-	close(c.closeChan)
+	close(c.closeChan) // Signal that the connection is closed
 	err := c.conn.WriteMessage(websocket.CloseMessage, websocket.FormatCloseMessage(websocket.CloseNormalClosure, ""))
 	if err != nil {
 		return err
 	}
-	return c.conn.Close()
+	return c.conn.Close() // Close the actual WebSocket connection
 }
 
 // Call sends an RPC call to the server and waits for a response.
 func (c *Client) Call(method string, timeout time.Duration, params interface{}) (json.RawMessage, error) {
 	c.mu.Lock()
-	c.callID++
+	c.callID++ // Increment callID for each call
 	callID := c.callID
-	responseChan := make(chan json.RawMessage, 1)
-	c.pending[callID] = responseChan
+	responseChan := make(chan json.RawMessage, 1) // Create channel to receive the response
+	c.pending[callID] = responseChan              // Store the callID and response channel
 	c.mu.Unlock()
 
 	defer func() {
 		c.mu.Lock()
-		delete(c.pending, callID)
+		delete(c.pending, callID) // Clean up the pending map after response is received
 		c.mu.Unlock()
 	}()
 
-	// For user.create and similar calls, we need to wrap params in an array
-	// For auth.login, we will handle it separately
+	// Create the RPC request payload
 	request := map[string]interface{}{
 		"jsonrpc": "2.0",
 		"method":  method,
@@ -219,10 +212,12 @@ func (c *Client) Call(method string, timeout time.Duration, params interface{}) 
 		"params":  params,
 	}
 
+	// Send the request to the WebSocket server
 	if err := c.conn.WriteJSON(request); err != nil {
 		return nil, fmt.Errorf("failed to send call: %w", err)
 	}
 
+	// Wait for the response or timeout
 	select {
 	case res := <-responseChan:
 		return res, nil
@@ -231,17 +226,17 @@ func (c *Client) Call(method string, timeout time.Duration, params interface{}) 
 	}
 }
 
-// listen handles incoming messages from the WebSocket server.
+// listen listens for incoming WebSocket messages.
 func (c *Client) listen() {
 	for {
 		select {
-		case <-c.closeChan:
+		case <-c.closeChan: // If the connection is closed, stop listening
 			return
 		default:
-			_, message, err := c.conn.ReadMessage()
+			_, message, err := c.conn.ReadMessage() // Read message from WebSocket server
 			if err != nil {
 				if !websocket.IsCloseError(err, websocket.CloseNormalClosure, websocket.CloseGoingAway) {
-					// log.Printf("error reading message: %v", err)
+					// log.Printf("error reading message: %v", err) // Log any non-close error
 				}
 				c.Close()
 				return
@@ -249,9 +244,10 @@ func (c *Client) listen() {
 
 			var response map[string]interface{}
 			if err := json.Unmarshal(message, &response); err != nil {
-				continue
+				continue // Ignore if message can't be parsed
 			}
 
+			// Handle collection update (e.g., job progress updates)
 			if method, ok := response["method"].(string); ok && method == "collection_update" {
 				params := response["params"].(map[string]interface{})
 				jobID := int64(params["id"].(float64))
@@ -259,51 +255,32 @@ func (c *Client) listen() {
 
 				// Only handle jobs started by this client
 				if c.jobs.IsOwnedJob(jobID) {
-
-					progress, ok := fields["progress"].(map[string]interface{})
-					description, ok := progress["description"].(string)
-					percent, ok := progress["percent"].(float64)
-					if !ok {
-						percent = 0
-					}
-					state, ok := fields["state"].(string)
-					if !ok {
-						state = "unknown"
-					}
-					result, ok := fields["result"].(string)
-					if !ok {
-						result = ""
-					}
-					errors, ok := fields["error"].(string)
-					if !ok {
-						errors = ""
-					}
-
-					// Log job updates
-					//log.Printf("Job update (started by this client): ID=%d, progress=%.2f%%, description = %s, state=%s, result=%s, errors=%v", jobID, percent, description, state, result, errors)
+					progress := fields["progress"].(map[string]interface{})
+					description, _ := progress["description"].(string)
+					percent, _ := progress["percent"].(float64)
+					state, _ := fields["state"].(string)
+					result, _ := fields["result"].(string)
+					errors, _ := fields["error"].(string)
 
 					// Update the job state in the Jobs manager
 					c.jobs.UpdateJobState(jobID, state, percent, result, errors)
 
 					// Trigger the callback if it exists
 					if job, exists := c.jobs.jobs[jobID]; exists && job.Callback != nil {
-						job.Callback(percent, state, description) // Call the callback with progress and state
+						job.Callback(percent, state, description)
 					}
 				}
 				continue
 			}
 
-			// float64 "looks" wrong, but Javascript kinda only knows floats.
+			// Handle RPC responses by matching call ID
 			if id, ok := response["id"].(float64); ok {
 				callID := int(id)
 				c.mu.Lock()
 				if ch, exists := c.pending[callID]; exists {
-					ch <- message
+					ch <- message // Send message to pending call's channel
 				}
-
 				c.mu.Unlock()
-			} else {
-
 			}
 		}
 	}
@@ -327,6 +304,7 @@ func (c *Client) CallWithJob(method string, params interface{}, callback func(pr
 		return nil, fmt.Errorf("API error: %v", errorData)
 	}
 
+	// Extract job ID from the response
 	jobID, ok := response["result"].(float64)
 	if !ok {
 		return nil, fmt.Errorf("unexpected response format for job")
@@ -338,16 +316,16 @@ func (c *Client) CallWithJob(method string, params interface{}, callback func(pr
 	// Mark this job as owned by this client
 	c.jobs.AddOwnedJob(int64(jobID))
 
-	// Set the callback function
+	// Set the callback function for job updates
 	job.Callback = callback
 
 	// Return the Job instance to allow tracking
 	return job, nil
 }
 
-// Ping sends a ping request to the server.
+// Ping sends a ping request to the server to check connectivity.
 func (c *Client) Ping() (string, error) {
-	res, err := c.Call("core.ping", 10, []interface{}{}) // Pass an empty array as params
+	res, err := c.Call("core.ping", 10, []interface{}{}) // Empty array as params
 
 	if err != nil {
 		return "", err
@@ -359,11 +337,6 @@ func (c *Client) Ping() (string, error) {
 		return "", fmt.Errorf("failed to parse ping response: %w", err)
 	}
 
-	// Check if there's an error in the ping response
-	if errorData, exists := response["error"]; exists {
-		return "", fmt.Errorf("ping error: %v", errorData)
-	}
-
 	// Return the result (e.g., "pong") from the response
 	if result, exists := response["result"].(string); exists {
 		return result, nil
@@ -372,8 +345,7 @@ func (c *Client) Ping() (string, error) {
 	return "", errors.New("unexpected ping response format")
 }
 
-// Login attempts to log in using username/password or API key.
-// If username and password are provided, they are used for login. Otherwise, it will try to use the API key.
+// Login attempts to log in using either username/password or an API key.
 func (c *Client) Login(username, password, apiKey string) error {
 	var params interface{}
 	var method string
@@ -385,7 +357,7 @@ func (c *Client) Login(username, password, apiKey string) error {
 	} else if username != "" && password != "" {
 		// Use username and password login
 		method = "auth.login"
-		params = []interface{}{username, password} // Note: params are passed as-is, no array wrapping here
+		params = []interface{}{username, password}
 	} else {
 		return errors.New("either username/password or API key must be provided")
 	}
@@ -406,11 +378,9 @@ func (c *Client) Login(username, password, apiKey string) error {
 		return fmt.Errorf("login error: %v", errorData)
 	}
 
-	// Check the result, depending on the success of the login
-	if result, exists := response["result"]; exists {
-		if result == true {
-			return nil
-		}
+	// Return success if login result is true
+	if result, exists := response["result"]; exists && result == true {
+		return nil
 	}
 
 	return errors.New("login failed, unexpected response")

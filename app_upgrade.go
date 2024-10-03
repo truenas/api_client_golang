@@ -1,99 +1,97 @@
 package main
 
 import (
-	"encoding/json"
-	"fmt"
 	"log"
 	"os"
 	"truenas_api/truenas_api"
 )
 
-// Define the structures to parse the JSON response.
-type JSONRPCResponse struct {
-	JSONRPC string `json:"jsonrpc"`
-	Result  []App  `json:"result"`
-	ID      int    `json:"id"`
-}
+const (
+	apiKeyEnv       = "TRUENAS_API_KEY"
+	defaultProtocol = "ws://"
+	apiPath         = "/api/current"
+)
 
-type App struct {
-	Name            string          `json:"name"`
-	ID              string          `json:"id"`
-	State           string          `json:"state"`
-	ActiveWorkloads ActiveWorkloads `json:"active_workloads"`
-	Metadata        Metadata        `json:"metadata"`
-}
-
-type ActiveWorkloads struct {
-	Containers       int               `json:"containers"`
-	ContainerDetails []ContainerDetail `json:"container_details"`
-}
-
-type ContainerDetail struct {
-	ServiceName string `json:"service_name"`
-	Image       string `json:"image"`
-	State       string `json:"state"`
-}
-
-type Metadata struct {
-	AppVersion string `json:"app_version"`
-}
-
-func main() {
-	// Checking the command-line arguments.
-	if len(os.Args) < 2 {
-		log.Fatal("Usage: app_upgrade <server>")
+// checkEnvOrExit checks if the environment variable is set and returns its value or exits if not set.
+func checkEnvOrExit(envVar string) string {
+	value, exists := os.LookupEnv(envVar)
+	if !exists {
+		log.Fatalf("Environment variable %s not set", envVar)
+		os.Exit(1)
 	}
+	return value
+}
 
-	server := os.Args[1]
-	log.Printf("Connecting to TrueNAS server at %s", server)
-	serverURL := "ws://" + server + "/api/current"
+// logFatalAndExit logs an error message and exits the application.
+func logFatalAndExit(format string, v ...interface{}) {
+	log.Fatalf(format, v...)
+	os.Exit(1)
+}
 
-	// Creating the TrueNAS API client.
+// connectClient initializes and returns a TrueNAS API client.
+func connectClient(server string) *truenas_api.Client {
+	serverURL := defaultProtocol + server + apiPath
 	client, err := truenas_api.NewClient(serverURL, false)
 	if err != nil {
-		log.Fatalf("Failed to connect: %v", err)
+		logFatalAndExit("Failed to connect: %v", err)
 	}
-	defer client.Close()
+	return client
+}
 
-	username := os.Getenv("TRUENAS_USERNAME")
-	password := os.Getenv("TRUENAS_PASSWORD")
-	apiKey := os.Getenv("TRUENAS_API_KEY")
+// loginClient logs into the TrueNAS API client.
+func loginClient(client *truenas_api.Client) {
+	username, password := "", ""
+	apiKey := checkEnvOrExit(apiKeyEnv)
 
-	// Logging in with username/password or API key.
-	if err := client.Login(username, password, apiKey); err != nil {
-		log.Fatalf("Login failed: %v", err)
+	err := client.Login(username, password, apiKey)
+	if err != nil {
+		logFatalAndExit("Login failed: %v", err)
 	}
 	log.Println("Login successful!")
+}
 
+// main is the entry point of the application.
+func main() {
+	if len(os.Args) < 3 {
+		log.Fatal("Usage: app_upgrade <server> <app_name>")
+		os.Exit(1)
+	}
+
+	server, appName := os.Args[1], os.Args[2]
+	log.Printf("Connecting to TrueNAS server at %s", server)
+
+	client := connectClient(server)
+	defer client.Close()
+
+	loginClient(client)
+
+	// Subscribe to job updates
 	if err := client.SubscribeToJobs(); err != nil {
-		log.Fatalf("Failed to subscribe to job updates: %v", err)
+		logFatalAndExit("Failed to subscribe to job updates: %v", err)
 	}
 
-	// Making the API call.
-	response, err := client.Call("app.query", 10, []interface{}{})
+	// Define the callback to handle job progress updates.
+	job, err := client.CallWithJob("app.upgrade", []interface{}{appName}, func(progress float64, state string, description string) {
+		log.Printf("Job Progress: %.2f%%, State: %s, Description: %s", progress, state, description)
+	})
 	if err != nil {
-		log.Fatalf("Failed to update apps: %v", err)
+		logFatalAndExit("Failed to upgrade app: %v", err)
 	}
+	log.Printf("Started long-running job with ID: %d", job.ID)
 
-	// Parsing the JSON-RPC response.
-	var rpcResponse JSONRPCResponse
-	if err := json.Unmarshal(response, &rpcResponse); err != nil {
-		log.Fatalf("Failed to unmarshal response: %v", err)
-	}
-
-	// Printing the parsed data.
-	for _, app := range rpcResponse.Result {
-		fmt.Printf("App Name: %s\n", app.Name)
-		fmt.Printf("App ID: %s\n", app.ID)
-		fmt.Printf("State: %s\n", app.State)
-		fmt.Printf("Containers: %d\n", app.ActiveWorkloads.Containers)
-		for _, container := range app.ActiveWorkloads.ContainerDetails {
-			fmt.Printf("  Service Name: %s\n", container.ServiceName)
-			fmt.Printf("  Image: %s\n", container.Image)
-			fmt.Printf("  State: %s\n", container.State)
+	// Monitor the progress of the job.
+	for !job.Finished {
+		select {
+		case progress := <-job.ProgressCh:
+			log.Printf("Job progress: %.2f%%", progress)
+		case err := <-job.DoneCh:
+			if err != "" {
+				logFatalAndExit("Job failed: %v", err)
+			} else {
+				log.Println("Job completed successfully!")
+			}
+			client.Close()
 		}
-		fmt.Printf("App Version: %s\n", app.Metadata.AppVersion)
-		fmt.Println()
 	}
 
 	log.Println("Client closed.")
