@@ -28,15 +28,13 @@ func main() {
 	}
 	defer client.Close()
 
-	// Example login with username and password
-	username := ""
-	password := ""
-	apiKey := "" // Leave empty if using username/password
-	//apiKey := ""
+	username := os.Getenv("TRUENAS_USERNAME")
+	password := os.Getenv("TRUENAS_PASSWORD")
+	apiKey := os.Getenv("TRUENAS_API_KEY")
 
-	err = client.Login(username, password, apiKey)
-	if err != nil {
-		log.Fatalf("login failed: %v", err)
+	// Logging in with username/password or API key.
+	if err := client.Login(username, password, apiKey); err != nil {
+		log.Fatalf("Login failed: %v", err)
 	}
 	log.Println("Login successful!")
 
@@ -48,7 +46,7 @@ func main() {
 	if err != nil {
 		log.Fatalf("failed to call system.info: %v", err)
 	}
-	//log.Printf("Result: %s", res)
+
 	var prettyJSON bytes.Buffer
 	json.Indent(&prettyJSON, res, "", "\t")
 	log.Printf("Result: %s", prettyJSON.String())

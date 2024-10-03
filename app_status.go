@@ -60,7 +60,7 @@ func main() {
 	// Example login with username and password
 	username := ""
 	password := ""
-	apiKey := "" // Leave empty if using username/password
+	apiKey := "4-4pl8LTq6aFhFMPMvhjbjDxSYxS6IfXaAwy3LhCcQhwnrVUs0g8oAYvSssZEUdyvl" // Leave empty if using username/password
 	//apiKey := ""
 
 	err = client.Login(username, password, apiKey)
