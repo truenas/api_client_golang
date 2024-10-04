@@ -1,6 +1,8 @@
 package main
 
 import (
+	"bytes"
+	"encoding/json"
 	"log"
 	"os"
 	"truenas_api/truenas_api"
@@ -45,7 +47,10 @@ func main() {
 	if err != nil {
 		log.Fatalf("failed to query user: %v", err)
 	}
-	log.Printf("%s", res)
+
+	var prettyJSON bytes.Buffer
+	json.Indent(&prettyJSON, res, "", "\t")
+	log.Printf("%s", prettyJSON.String())
 
 	// Graceful shutdown
 	client.Close()
