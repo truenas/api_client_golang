@@ -38,14 +38,13 @@ func main() {
 	}
 	log.Println("Login successful!")
 
-	client.Ping()
+	// Example call to create a user
+	//       payload = {'name': API_KEY_NAME, 'allowlist': [{'resource': '*', 'method': '*'}]}
 	params2 := map[string]interface{}{
 		"resource": "*",
 		"method":   "*",
 	}
 
-	// Example call to create a user
-	//       payload = {'name': API_KEY_NAME, 'allowlist': [{'resource': '*', 'method': '*'}]}
 	params := map[string]interface{}{
 		"name":      new_api_key_name,
 		"allowlist": []interface{}{params2},
