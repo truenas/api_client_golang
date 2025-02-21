@@ -24,6 +24,7 @@ type Client struct {
 	notifyChan chan os.Signal               // For handling notifications (e.g., OS signals)
 	closeChan  chan struct{}                // Channel to signal when the connection should be closed
 	jobs       *Jobs                        // Jobs manager to track long-running jobs
+	jobsCb     func(int64, int64, map[string]interface{})
 }
 
 // Job represents a long-running job in TrueNAS.
@@ -140,6 +141,10 @@ func (c *Client) SubscribeToJobs() error {
 
 // NewClient creates a new WebSocket client connection.
 func NewClient(serverURL string, verifySSL bool) (*Client, error) {
+	return NewClientWithCallback(serverURL, verifySSL, nil)
+}
+
+func NewClientWithCallback(serverURL string, verifySSL bool, jobsCallback func(int64, int64, map[string]interface{})) (*Client, error) {
 	u, err := url.Parse(serverURL)
 	if err != nil {
 		return nil, fmt.Errorf("invalid URL: %w", err)
@@ -163,6 +168,7 @@ func NewClient(serverURL string, verifySSL bool) (*Client, error) {
 		pending:   make(map[int]chan json.RawMessage),
 		closeChan: make(chan struct{}),
 		jobs:      NewJobs(nil),
+		jobsCb:    jobsCallback,
 	}
 
 	client.jobs = NewJobs(client)
@@ -190,7 +196,9 @@ func (c *Client) Close() error {
 }
 
 // Call sends an RPC call to the server and waits for a response.
-func (c *Client) Call(method string, timeout time.Duration, params interface{}) (json.RawMessage, error) {
+func (c *Client) Call(method string, timeoutSeconds int64, params interface{}) (json.RawMessage, error) {
+	timeout := time.Duration(timeoutSeconds) * time.Second
+
 	c.mu.Lock()
 	c.callID++ // Increment callID for each call
 	callID := c.callID
@@ -221,7 +229,7 @@ func (c *Client) Call(method string, timeout time.Duration, params interface{}) 
 	select {
 	case res := <-responseChan:
 		return res, nil
-	case <-time.After(timeout * time.Second):
+	case <-time.After(timeout):
 		return nil, errors.New("call timed out")
 	}
 }
@@ -253,8 +261,18 @@ func (c *Client) listen() {
 				jobID := int64(params["id"].(float64))
 				fields := params["fields"].(map[string]interface{})
 
-				// Only handle jobs started by this client
-				if c.jobs.IsOwnedJob(jobID) {
+				if c.jobsCb != nil {
+					innerJobID := jobID
+					if innerMethod, _ := fields["method"].(string); innerMethod == "core.job_wait" {
+						if args, ok := fields["arguments"].([]interface{}); ok && len(args) > 0 {
+							if value, ok := args[0].(float64); ok {
+								innerJobID = int64(value)
+							}
+						}
+					}
+					c.jobsCb(jobID, innerJobID, fields)
+				} else if c.jobs.IsOwnedJob(jobID) {
+					// Only handle jobs started by this client
 					progress := fields["progress"].(map[string]interface{})
 					description, _ := progress["description"].(string)
 					percent, _ := progress["percent"].(float64)
@@ -310,11 +328,20 @@ func (c *Client) CallWithJob(method string, params interface{}, callback func(pr
 		return nil, fmt.Errorf("unexpected response format for job")
 	}
 
-	// Add the job to the Jobs manager
-	job := c.jobs.AddJob(int64(jobID), method)
+	var job *Job
+	if c.jobsCb != nil {
+		job = &Job{
+			ID:     int64(jobID),
+			Method: method,
+			State:  "PENDING",
+		}
+	} else {
+		// Add the job to the Jobs manager
+		job = c.jobs.AddJob(int64(jobID), method)
 
-	// Mark this job as owned by this client
-	c.jobs.AddOwnedJob(int64(jobID))
+		// Mark this job as owned by this client
+		c.jobs.AddOwnedJob(int64(jobID))
+	}
 
 	// Set the callback function for job updates
 	job.Callback = callback

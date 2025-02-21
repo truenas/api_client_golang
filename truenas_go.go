@@ -36,7 +36,7 @@ func main() {
 	serverURL := flag.String("uri", "", "WebSocket server URI (e.g., ws://localhost:6000/websocket)")
 	method := flag.String("method", "", "RPC method to call (e.g., core.ping)")
 	jsonArgs := flag.String("params", "[]", "JSON-formatted arguments for the method (e.g., '[\"param1\", \"param2\"]')")
-	timeout := flag.Int("timeout", 10, "Timeout in seconds for the call")
+	timeoutSecs := flag.Int("timeout", 10, "Timeout in seconds for the call")
 	verifySSL := flag.Bool("verifyssl", true, "Verify SSL certificates for wss:// connections")
 	jobFlag := flag.Bool("job", false, "Use CallWithJob for methods that return a job ID")
 	user := flag.String("U", "", "Username for login")
@@ -108,13 +108,13 @@ func main() {
 			jobResult := job.Result
 			fmt.Println("Job completed successfully. Result:")
 			printPrettyJSON(jobResult)
-		case <-time.After(time.Duration(*timeout) * time.Second):
-			log.Fatalf("Job timed out after %d seconds", *timeout)
+		case <-time.After(time.Duration(*timeoutSecs) * time.Second):
+			log.Fatalf("Job timed out after %d seconds", *timeoutSecs)
 		}
 	} else {
 		// Use the regular Call method
 		//fmt.Printf("Calling method '%s'...\n", *method)
-		response, err := client.Call(*method, time.Duration(*timeout), params)
+		response, err := client.Call(*method, int64(*timeoutSecs), params)
 		if err != nil {
 			log.Fatalf("RPC call failed: %v", err)
 		}
