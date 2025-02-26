@@ -182,7 +182,7 @@ func NewClientWithCallback(serverURL string, verifySSL bool, jobsCallback func(i
 }
 
 // NewClient creates a new WebSocket client connection.
-func NewClientFromConn(conn net.Conn) (*Client, error) {
+func NewClientFromConn(conn net.Conn, jobsCallback func(int64, int64, map[string]interface{})) (*Client, error) {
 
 	// Create an HTTP request for the WebSocket upgrade
 	requestHeader := http.Header{}
@@ -209,6 +209,7 @@ func NewClientFromConn(conn net.Conn) (*Client, error) {
 		pending:   make(map[int]chan json.RawMessage),
 		closeChan: make(chan struct{}),
 		jobs:      NewJobs(nil),
+		jobsCb:    jobsCallback,
 	}
 	client.jobs = NewJobs(client)
 
