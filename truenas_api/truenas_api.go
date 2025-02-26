@@ -5,6 +5,9 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
+	"net"
+	"net/http"
 	"net/url"
 	"os"
 	"sync"
@@ -171,6 +174,42 @@ func NewClientWithCallback(serverURL string, verifySSL bool, jobsCallback func(i
 		jobsCb:    jobsCallback,
 	}
 
+	client.jobs = NewJobs(client)
+
+	go client.listen() // Start listening for WebSocket messages
+
+	return client, nil
+}
+
+// NewClient creates a new WebSocket client connection.
+func NewClientFromConn(conn net.Conn) (*Client, error) {
+
+	// Create an HTTP request for the WebSocket upgrade
+	requestHeader := http.Header{}
+	requestHeader.Add("Origin", "http://localhost")
+
+	// Create a custom Dialer with NetDial to handle Unix Domain Sockets
+	dialer := websocket.Dialer{
+		NetDial: func(network, addr string) (net.Conn, error) {
+			return net.Dial("unix", "/run/middleware/middlewared.sock")
+		},
+	}
+
+	// WebSocket URL (the Host is a placeholder since we're using UDS)
+	wsURL := url.URL{Scheme: "ws", Host: "localhost", Path: "/api/current"}
+
+	// Establish WebSocket connection using the custom dialer
+	wsConn, _, err := dialer.Dial(wsURL.String(), nil)
+	if err != nil {
+		log.Fatalf("Failed to connect to WebSocket: %v", err)
+	}
+	client := &Client{
+		url:       wsURL.String(),
+		conn:      wsConn,
+		pending:   make(map[int]chan json.RawMessage),
+		closeChan: make(chan struct{}),
+		jobs:      NewJobs(nil),
+	}
 	client.jobs = NewJobs(client)
 
 	go client.listen() // Start listening for WebSocket messages
