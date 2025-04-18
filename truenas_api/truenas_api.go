@@ -1,4 +1,4 @@
-package github.com/truenas/api_client_golang
+package truenas_api
 
 import (
 	"crypto/tls"

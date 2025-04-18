@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"log"
 	"os"
-	"github.com/truenas/api_client_golang"
+	"github.com/truenas/api_client_golang/truenas_api"
 )
 
 // Define the structures to parse the JSON response
