@@ -6,7 +6,7 @@ import (
 	"log"
 	"os"
 	"strconv"
-	"truenas_api/truenas_api"
+	"github.com/truenas/api_client_golang"
 )
 
 // example usage

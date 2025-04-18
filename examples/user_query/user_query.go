@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"log"
 	"os"
-	"truenas_api/truenas_api"
+	"github.com/truenas/api_client_golang"
 )
 
 // example usage
