@@ -8,7 +8,7 @@ import (
 	"os"
 	"time"
 
-	"truenas_api/truenas_api" // Replace with the correct package path
+	"truenas_api/api_client_golang" // Replace with the correct package path
 )
 
 // parseArgs parses the JSON-style arguments passed via the command line.

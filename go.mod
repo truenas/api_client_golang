@@ -1,4 +1,4 @@
-module truenas_api
+module github.com/truenas/api_client_golang
 
 go 1.22.2
 

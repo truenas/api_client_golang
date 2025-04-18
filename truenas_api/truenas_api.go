@@ -1,4 +1,4 @@
-package truenas_api
+package github.com/truenas/api_client_golang
 
 import (
 	"crypto/tls"
@@ -182,7 +182,7 @@ func NewClientWithCallback(serverURL string, verifySSL bool, jobsCallback func(i
 }
 
 // NewClient creates a new WebSocket client connection.
-func NewClientFromConn(conn net.Conn, jobsCallback func(int64, int64, map[string]interface{})) (*Client, error) {
+func NewClientFromConn(socketPath string, jobsCallback func(int64, int64, map[string]interface{})) (*Client, error) {
 
 	// Create an HTTP request for the WebSocket upgrade
 	requestHeader := http.Header{}
@@ -191,7 +191,7 @@ func NewClientFromConn(conn net.Conn, jobsCallback func(int64, int64, map[string
 	// Create a custom Dialer with NetDial to handle Unix Domain Sockets
 	dialer := websocket.Dialer{
 		NetDial: func(network, addr string) (net.Conn, error) {
-			return net.Dial("unix", "/run/middleware/middlewared.sock")
+			return net.Dial("unix", socketPath)
 		},
 	}
 
