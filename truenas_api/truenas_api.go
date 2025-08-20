@@ -317,7 +317,7 @@ func (c *Client) listen() {
 					description, _ := progress["description"].(string)
 					percent, _ := progress["percent"].(float64)
 					state, _ := fields["state"].(string)
-					result, _ := fields["result"].(string)
+					result := fields["result"] // Keep as interface{} instead of casting to string
 					errors, _ := fields["error"].(string)
 
 					// Update the job state in the Jobs manager
